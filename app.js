@@ -1,6 +1,7 @@
 const path = require("path");
 const express = require("express");
 const { setHeaders } = require("./middlewares/headers");
+const authRouter = require("./routes/v1/auth");
 
 const app = express();
 
@@ -12,6 +13,7 @@ app.use(setHeaders);
 app.use(express.static(path.join(__dirname, "public")));
 
 //* Routers
+app.use("/auth", authRouter);
 
 //! 404 Error handler
 app.use((req, res) => {
