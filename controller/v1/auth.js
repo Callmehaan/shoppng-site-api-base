@@ -5,6 +5,7 @@ const {
 const { sendSms } = require("../../services/otp.js");
 const authModel = require("./../../models/auth.js");
 const banModel = require("./../../models/Ban.js");
+const userModel = require("./../../models/User.js");
 const {
     getOtpRedisPattern,
     getOtpDetails,
@@ -13,10 +14,14 @@ const {
     sendOtpValidator,
     otpVerifyValidator,
 } = require("./../../validators/auth.js");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 
 exports.send = async (req, res, next) => {
     try {
         const { phone } = req.body;
+
+        await sendOtpValidator.validate(req.body, { abortEarly: false });
 
         const isBan = await banModel.findOne({ phone });
 
@@ -27,8 +32,6 @@ exports.send = async (req, res, next) => {
                 "This phone number has been banned",
                 undefined
             );
-
-        await sendOtpValidator.validate(phone, { abortEarly: false });
 
         const { expired, remainingTime } = await getOtpDetails(phone);
 
@@ -48,6 +51,58 @@ exports.send = async (req, res, next) => {
     }
 };
 
-exports.verify = async (req, res, next) => {};
+exports.verify = async (req, res, next) => {
+    try {
+        const { phone, otp, isSeller } = req.body;
+
+        await otpVerifyValidator.validate(req.body, { abortEarly: false });
+
+        const savedOtp = await redis.get(getOtpRedisPattern(phone));
+
+        if (!savedOtp)
+            return errorResponse(res, 400, "Wrong OTP or expired time");
+
+        const isOtpCorrect = await bcrypt.compare(otp, savedOtp);
+
+        if (!isOtpCorrect)
+            return errorResponse(res, 400, "Wrong OTP or expired time");
+
+        const existingUser = await userModel.findOne({ phone });
+
+        if (existingUser) {
+            const token = jwt.sign(
+                { userId: existingUser._id },
+                process.env.JWT_SECRET,
+                { expiresIn: "30d" }
+            );
+
+            return successResponse(res, 200, { user: existingUser, token });
+        }
+
+        const isFirstUser = (await userModel.countDocuments()) === 0;
+
+        const user = await userModel.create({
+            phone,
+            username: phone,
+            roles: isFirstUser
+                ? ["ADMIN"]
+                : isSeller
+                ? ["USER", "SELLER"]
+                : ["USER"],
+        });
+
+        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+            expiresIn: "30d",
+        });
+
+        return successResponse(res, 201, {
+            message: "User registered successfully",
+            token,
+            user,
+        });
+    } catch (err) {
+        next(err);
+    }
+};
 
 exports.getMe = async (req, res, next) => {};
