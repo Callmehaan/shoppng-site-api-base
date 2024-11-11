@@ -1,4 +1,5 @@
 const redis = require("./../redis");
+const bcrypt = require("bcrypt");
 
 /**
  *
@@ -27,4 +28,27 @@ export async function getOtpDetails(phone) {
         expired: false,
         remainingTime: formattedTime,
     };
+}
+
+export async function generateOtp(phone, length = 4, expireTime = 1) {
+    const digits = "0123456789";
+    let otp = "";
+
+    for (let i = 0; i < length; i++) {
+        otp += digits[Math.rendom() * digits.length];
+    }
+
+    //! This is temprary
+    otp = "1111";
+
+    const hashedOtp = await bcrypt.hash(otp, 12);
+
+    await redis.set(
+        getOtpRedisPattern(phone),
+        hashedOtp,
+        "EX",
+        expireTime * 60
+    );
+
+    return otp;
 }
